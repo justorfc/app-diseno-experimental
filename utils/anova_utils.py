@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.stats import f as f_dist
 from scipy.stats import studentized_range
 from statsmodels.formula.api import ols
 from statsmodels.regression.linear_model import RegressionResultsWrapper
@@ -105,6 +106,9 @@ def validar_dca(df: pd.DataFrame, col_trat: str, col_resp: str) -> list[str]:
     if errores:
         return errores
 
+    # Tratamiento y respuesta no pueden ser la misma columna
+    if col_trat == col_resp:
+        return ["La columna de tratamientos y la de respuesta deben ser distintas."]
     # 2. La respuesta debe ser numérica para poder calcular medias y varianzas
     if not pd.api.types.is_numeric_dtype(df[col_resp]):
         errores.append(f"La respuesta '{col_resp}' debe ser numérica.")
@@ -188,6 +192,25 @@ def tabla_anova(modelo: RegressionResultsWrapper) -> pd.DataFrame:
     )
     tabla = pd.concat([tabla, total], ignore_index=True)
     return tabla[["Fuente", "gl", "SC", "CM", "F", "p-valor"]]
+
+
+def f_critica(tabla: pd.DataFrame, alfa: float = 0.05) -> float:
+    """Calcula la F crítica para comparar con la F calculada del ANOVA.
+
+    Fórmula:  F crítica = F(1 - alfa; gl_tratamientos; gl_error)
+    Se rechaza H0 si la F calculada es mayor que la F crítica.
+
+    Args:
+        tabla: Tabla ANOVA devuelta por tabla_anova.
+        alfa: Nivel de significancia.
+
+    Returns:
+        Valor crítico de la distribución F.
+    """
+    gl_trat = tabla.loc[tabla["Fuente"] == "Tratamientos", "gl"].iloc[0]
+    gl_error = tabla.loc[tabla["Fuente"] == "Error", "gl"].iloc[0]
+    # Cuantil 1 - alfa de la distribución F
+    return float(f_dist.ppf(1 - alfa, gl_trat, gl_error))
 
 
 def resumen_tratamientos(df: pd.DataFrame, col_trat: str, col_resp: str) -> pd.DataFrame:
