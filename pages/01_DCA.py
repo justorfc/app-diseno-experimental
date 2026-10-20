@@ -19,6 +19,13 @@ from utils.anova_utils import (
     tukey,
     validar_dca,
 )
+from utils.diagnostico_utils import (
+    grafico_qq,
+    grafico_residuos_vs_ajustados,
+    prueba_levene,
+    prueba_shapiro,
+    residuos_y_ajustados,
+)
 
 RUTA_EJEMPLO = Path(__file__).resolve().parent.parent / "data" / "dca_secadores.csv"
 
@@ -95,8 +102,8 @@ f_crit = f_critica(anova, alfa)
 p_valor = float(anova.loc[anova["Fuente"] == "Tratamientos", "p-valor"].iloc[0])
 significativo = p_valor < alfa
 
-tab_datos, tab_anova, tab_comp, tab_graf = st.tabs(
-    ["Datos", "ANOVA", "Comparaciones", "Gráficos"]
+tab_datos, tab_anova, tab_comp, tab_graf, tab_sup = st.tabs(
+    ["Datos", "ANOVA", "Comparaciones", "Gráficos", "Supuestos"]
 )
 
 with tab_datos:
@@ -180,3 +187,44 @@ with tab_graf:
     fig_med.update_layout(yaxis_title=f"Media de {col_resp}")
     st.plotly_chart(fig_med, width="stretch")
     st.caption("Las barras de error muestran ± 1 desviación estándar.")
+
+with tab_sup:
+    st.subheader("Diagnóstico de supuestos")
+    residuos, ajustados = residuos_y_ajustados(modelo)
+    w, p_sw, concl_sw = prueba_shapiro(residuos, alfa)
+    l_est, p_lev, concl_lev = prueba_levene(df, col_trat, col_resp, alfa)
+
+    g1, g2 = st.columns(2)
+    g1.plotly_chart(grafico_residuos_vs_ajustados(residuos, ajustados), width="stretch")
+    g2.plotly_chart(grafico_qq(residuos), width="stretch")
+
+    pruebas = pd.DataFrame(
+        {
+            "Prueba": ["Shapiro-Wilk (normalidad)", "Levene (homogeneidad de varianzas)"],
+            "Estadístico": [w, l_est],
+            "p-valor": [p_sw, p_lev],
+            "Conclusión": [concl_sw, concl_lev],
+        }
+    )
+    st.dataframe(
+        pruebas.style.format({"Estadístico": "{:.4f}", "p-valor": "{:.4f}"}),
+        hide_index=True,
+        width="stretch",
+    )
+
+    st.markdown(
+        """
+**¿Qué revisa cada herramienta?**
+- **Normalidad (Shapiro-Wilk y gráfico Q-Q):** los residuos deben ser aproximadamente normales.
+  En el Q-Q los puntos deben seguir la recta. H0: los residuos son normales.
+- **Homogeneidad de varianzas (Levene y residuos vs. ajustados):** todos los tratamientos deben
+  tener una dispersión parecida. En el gráfico no debe verse forma de embudo ni curvas.
+  H0: las varianzas son iguales.
+- **Independencia:** no se prueba con un estadístico; se garantiza con la **aleatorización**
+  de los tratamientos a las unidades experimentales.
+
+Una prueba con p-valor ≥ α no *demuestra* el supuesto: solo indica que no hay evidencia en su
+contra. Con pocas réplicas las pruebas tienen poca potencia, por eso conviene apoyarse
+también en las gráficas.
+"""
+    )
