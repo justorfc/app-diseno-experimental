@@ -20,6 +20,7 @@
 
 - Añade anotaciones de tipo (`type hints`) a las funciones.
 - Limita las dependencias a `streamlit`, `pandas`, `numpy`, `scipy`, `statsmodels`, `plotly` y `openpyxl`. No agregues otras librerías sin pedir permiso.
+- Librería adicional permitida: `matplotlib` (solo para exportar figuras a PNG y PDF). No uses `kaleido`.
 - Ajusta los modelos ANOVA con `statsmodels.formula.api.ols` y calcula la tabla con `statsmodels.stats.anova.anova_lm(typ=2)`.
 - Realiza las comparaciones de Tukey con `statsmodels.stats.multicomp.pairwise_tukeyhsd`.
 - No inventes ni codifiques resultados numéricos: todos deben provenir del cálculo ejecutado con los datos.
@@ -32,3 +33,7 @@
 
 - En DBCA, DCL y DPD la prueba de Tukey usa el CM Error y los gl Error DEL MODELO ajustado, nunca `pairwise_tukeyhsd` (que ignora bloques).
 - En el DPD hay dos errores: Error (a) para la parcela principal y Error (b) para la subparcela y la interacción.
+
+## Reglas para RSM
+
+- En RSM las variables se trabajan codificadas (x1, x2) y siempre se muestran también en unidades naturales.
