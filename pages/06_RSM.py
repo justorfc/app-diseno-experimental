@@ -3,15 +3,29 @@
 import io
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from utils.anova_utils import cargar_datos
 from utils.rsm_coding import decodificar
-from utils.rsm_models import ajustar_primer_orden, prueba_curvatura, trayectoria_ascenso
+from utils.rsm_models import (
+    ajustar_primer_orden,
+    ajustar_segundo_orden,
+    prueba_curvatura,
+    trayectoria_ascenso,
+)
+from utils.rsm_stationary import (
+    clasificar,
+    fuera_de_region,
+    matriz_B,
+    punto_estacionario,
+    respuesta_en_punto,
+)
 
 RUTA_EJEMPLO = Path(__file__).resolve().parent.parent / "data" / "rsm_primer_orden.csv"
+RUTA_CCD = Path(__file__).resolve().parent.parent / "data" / "rsm_ccd.csv"
 
 st.set_page_config(page_title="RSM", page_icon="🌱", layout="wide")
 
@@ -42,6 +56,7 @@ st.write(
 # Barra lateral: definición de las variables naturales
 with st.sidebar:
     st.header("Variables naturales")
+    st.subheader("Primer orden (pestañas 1 y 2)")
     nom1 = st.text_input("Nombre de la variable 1", "Inclinación")
     uni1 = st.text_input("Unidad de la variable 1", "°")
     cen1 = st.number_input(f"Centro de {nom1}", value=15.0)
@@ -51,6 +66,12 @@ with st.sidebar:
     uni2 = st.text_input("Unidad de la variable 2", "m/s")
     cen2 = st.number_input(f"Centro de {nom2}", value=10.0)
     sem2 = st.number_input(f"Semirango de {nom2}", value=4.0, min_value=1e-6)
+    st.divider()
+    st.subheader("Diseño central compuesto (pestañas 3 y 4)")
+    cen1c = st.number_input(f"Centro de {nom1} (CCD)", value=25.0)
+    sem1c = st.number_input(f"Semirango de {nom1} (CCD)", value=3.0, min_value=1e-6)
+    cen2c = st.number_input(f"Centro de {nom2} (CCD)", value=15.0)
+    sem2c = st.number_input(f"Semirango de {nom2} (CCD)", value=2.0, min_value=1e-6)
     st.caption("Codificación: x = (ξ − centro) / semirango")
     alfa = st.slider("Nivel de significancia (α)", 0.01, 0.10, 0.05, step=0.01)
 
@@ -68,8 +89,8 @@ tabs = st.tabs(
         "7. Exportar",
     ]
 )
-tab1, tab2 = tabs[0], tabs[1]
-for tab in tabs[2:]:
+tab1, tab2, tab3, tab4 = tabs[:4]
+for tab in tabs[4:]:
     with tab:
         st.info("En construcción")
 
@@ -127,7 +148,7 @@ with tab1:
                 {
                     "Concepto": ["n factoriales", "n centrales", "ȳ factoriales", "ȳ centrales",
                                  "SC curvatura", "s² (centros)", "F", "gl", "p-valor"],
-                    "Valor": [curv["nF"], curv["nC"], f"{curv['yF']:.4f}", f"{curv['yC']:.4f}",
+                    "Valor": [str(curv["nF"]), str(curv["nC"]), f"{curv['yF']:.4f}", f"{curv['yC']:.4f}",
                               f"{curv['sc_curvatura']:.4f}", f"{curv['s2']:.4f}", f"{curv['F']:.4f}",
                               f"({curv['gl'][0]}, {curv['gl'][1]})", f"{curv['p_valor']:.4f}"],
                 }
@@ -176,3 +197,151 @@ with tab2:
         fig.update_layout(xaxis_title="x1 (codificada)", yaxis_title="x2 (codificada)")
         st.plotly_chart(fig, width="stretch")
         st.caption("La flecha indica la dirección de máximo ascenso desde el centro del diseño.")
+
+with tab3:
+    archivo3 = st.file_uploader("Cargue sus datos del CCD (CSV o Excel)", type=["csv", "xlsx"], key="ccd")
+    try:
+        if archivo3 is not None:
+            df3 = leer_datos(archivo3.getvalue(), archivo3.name)
+        else:
+            df3 = leer_datos(RUTA_CCD.read_bytes(), RUTA_CCD.name)
+            st.caption("No se cargó archivo: se usan los datos de ejemplo `data/rsm_ccd.csv`.")
+    except Exception as error:
+        st.error(f"No se pudo leer el archivo: {error}")
+        st.stop()
+    num3 = [c for c in df3.columns if pd.api.types.is_numeric_dtype(df3[c])]
+    if len(num3) < 3:
+        st.error("El archivo debe tener al menos 3 columnas numéricas (x1, x2 y la respuesta).")
+        st.stop()
+    k1, k2, k3 = st.columns(3)
+    c_x1 = k1.selectbox("Columna x1 (codificada)", num3, index=0, key="c3x1")
+    c_x2 = k2.selectbox("Columna x2 (codificada)", num3, index=1, key="c3x2")
+    c_y = k3.selectbox("Columna de respuesta", num3, index=len(num3) - 1, key="c3y")
+    if len({c_x1, c_x2, c_y}) < 3:
+        st.error("Seleccione tres columnas distintas.")
+        st.stop()
+    d3 = df3[[c_x1, c_x2, c_y]].dropna()
+    if len(d3) < 7:
+        st.error("Se necesitan al menos 7 observaciones para ajustar el modelo de segundo orden.")
+        st.stop()
+
+    st.subheader("Datos")
+    t3 = d3.copy()
+    t3[etq1] = decodificar(d3[c_x1], cen1c, sem1c)
+    t3[etq2] = decodificar(d3[c_x2], cen2c, sem2c)
+    st.dataframe(t3, hide_index=True, width="stretch")
+
+    mod2, coef2, r2_2, r2a, falta = ajustar_segundo_orden(d3, c_y, c_x1, c_x2)
+    st.subheader("Modelo de segundo orden")
+    st.dataframe(
+        coef2.style.format({"Estimación": "{:.4f}", "Error estándar": "{:.4f}", "t": "{:.4f}", "p-valor": "{:.4f}"}),
+        hide_index=True,
+        width="stretch",
+    )
+    m1, m2 = st.columns(2)
+    m1.metric("R²", f"{r2_2:.4f}")
+    m2.metric("R² ajustado", f"{r2a:.4f}")
+
+    st.subheader("Falta de ajuste")
+    if falta is None:
+        st.info("No se puede probar la falta de ajuste: se necesitan réplicas en el centro.")
+        sin_falta = None
+    else:
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Fuente": ["Falta de ajuste", "Error puro"],
+                    "gl": [falta["gl_fa"], falta["gl_pe"]],
+                    "SC": [falta["sc_fa"], falta["sc_pe"]],
+                    "CM": [falta["sc_fa"] / falta["gl_fa"], falta["sc_pe"] / falta["gl_pe"]],
+                    "F": [falta["F"], np.nan],
+                    "p-valor": [falta["p_valor"], np.nan],
+                }
+            ).style.format({"SC": "{:.4f}", "CM": "{:.4f}", "F": "{:.4f}", "p-valor": "{:.4f}"}, na_rep=""),
+            hide_index=True,
+            width="stretch",
+        )
+        sin_falta = falta["p_valor"] >= alfa
+    st.subheader("Interpretación")
+    if sin_falta is None:
+        st.write(f"El modelo explica el {r2_2:.1%} de la variación (R² ajustado = {r2a:.1%}), pero no se pudo verificar la falta de ajuste.")
+    elif sin_falta:
+        st.success(
+            f"p = {falta['p_valor']:.4f} ≥ α = {alfa:.2f}: no hay falta de ajuste. El modelo "
+            f"cuadrático describe bien los datos (R² ajustado = {r2a:.1%})."
+        )
+    else:
+        st.error(
+            f"p = {falta['p_valor']:.4f} < α = {alfa:.2f}: hay falta de ajuste. El modelo "
+            "cuadrático no describe bien la superficie; considere otro modelo o más puntos."
+        )
+
+with tab4:
+    p_ = [float(v) for v in mod2.params]
+    e0, e1, e2, e11, e22, e12 = p_
+    B = matriz_B(e11, e22, e12)
+    vec_b = np.array([e1, e2])
+    st.subheader("Matriz B y vector b")
+    cb1, cb2 = st.columns(2)
+    cb1.write("**Matriz B**")
+    cb1.dataframe(pd.DataFrame(B, index=["x1", "x2"], columns=["x1", "x2"]).style.format("{:.4f}"), width="stretch")
+    cb2.write("**Vector b**")
+    cb2.dataframe(pd.DataFrame({"b": vec_b}, index=["b1", "b2"]).style.format("{:.4f}"), width="stretch")
+
+    if abs(np.linalg.det(B)) < 1e-12:
+        st.error("La matriz B es singular: no existe un único punto estacionario (superficie tipo cresta).")
+        st.stop()
+    xs = punto_estacionario(e1, e2, B)
+    ys = respuesta_en_punto(e0, vec_b, xs)
+    vp, tipo = clasificar(B)
+    nat1 = decodificar(xs[0], cen1c, sem1c)
+    nat2 = decodificar(xs[1], cen2c, sem2c)
+
+    st.subheader("Punto estacionario")
+    st.dataframe(
+        pd.DataFrame(
+            {
+                "Variable": [nom1, nom2],
+                "Codificada": [xs[0], xs[1]],
+                "Natural": [nat1, nat2],
+                "Unidad": [uni1, uni2],
+            }
+        ).style.format({"Codificada": "{:.4f}", "Natural": "{:.4f}"}),
+        hide_index=True,
+        width="stretch",
+    )
+    m1, m2, m3 = st.columns(3)
+    m1.metric("ŷ en el punto estacionario", f"{ys:.4f}")
+    m2.metric("Valores propios", ", ".join(f"{v:.4f}" for v in vp))
+    m3.metric("Clasificación", tipo)
+    dist = float(np.linalg.norm(xs))
+    fuera = fuera_de_region(xs)
+    if fuera:
+        st.warning(
+            f"El punto estacionario está a {dist:.3f} unidades codificadas del centro (más de 1.414): "
+            "queda fuera de la región experimental y la predicción es una extrapolación poco confiable."
+        )
+
+    st.subheader("Recomendación")
+    resp_nombre = c_y
+    if tipo == "máximo":
+        texto = (
+            f"La superficie tiene un **máximo**: la mejor {resp_nombre} esperada es de "
+            f"**{ys:.2f}**, con {nom1} ≈ **{nat1:.2f} {uni1}** y {nom2} ≈ **{nat2:.2f} {uni2}**."
+        )
+    elif tipo == "mínimo":
+        texto = (
+            f"La superficie tiene un **mínimo**: el menor valor de {resp_nombre} esperado es "
+            f"**{ys:.2f}**, con {nom1} ≈ **{nat1:.2f} {uni1}** y {nom2} ≈ **{nat2:.2f} {uni2}**."
+        )
+    else:
+        texto = (
+            "El punto es un **punto de silla**: la respuesta sube en una dirección y baja en otra, "
+            "así que no es un óptimo. Use el análisis de cresta o curvas de nivel para elegir "
+            "condiciones de operación."
+        )
+    if fuera:
+        texto += " Como está fuera de la región probada, confírmelo con un experimento en el secador antes de usarlo."
+    else:
+        texto += " Está dentro de la región probada; se recomienda un ensayo de confirmación en el secador."
+    st.write(texto)

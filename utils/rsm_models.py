@@ -133,3 +133,59 @@ def trayectoria_ascenso(
         d2 = (b2 / b1) * d1
     k = np.arange(pasos + 1)
     return pd.DataFrame({"paso": k, "x1": k * d1, "x2": k * d2})
+
+
+def ajustar_segundo_orden(
+    df: pd.DataFrame, y: str, x1: str, x2: str
+) -> tuple[RegressionResultsWrapper, pd.DataFrame, float, float, dict | None]:
+    """Ajusta el modelo cuadrático completo de dos variables.
+
+    Modelo: y = b0 + b1·x1 + b2·x2 + b11·x1² + b22·x2² + b12·x1·x2.
+
+    Args:
+        df: Datos con las variables codificadas y la respuesta.
+        y: Columna de la respuesta.
+        x1: Columna de la variable codificada 1.
+        x2: Columna de la variable codificada 2.
+
+    Returns:
+        Modelo ajustado, tabla de coeficientes (b0, b1, b2, b11, b22, b12),
+        R², R² ajustado y la prueba de falta de ajuste (None si no hay al
+        menos 2 puntos centrales repetidos).
+    """
+    q1, q2 = _q(x1), _q(x2)
+    # Los términos cuadráticos captan la curvatura y x1:x2 la interacción
+    formula = f"{_q(y)} ~ {q1} + {q2} + I({q1}**2) + I({q2}**2) + {q1}:{q2}"
+    modelo = ols(formula, data=df).fit()
+
+    # Orden de los parámetros en statsmodels: Intercept, x1, x2, x1², x2², x1:x2
+    nombres = ["b0", "b1", "b2", "b11", "b22", "b12"]
+    tabla = pd.DataFrame(
+        {
+            "Coeficiente": nombres,
+            "Estimación": modelo.params.to_numpy(),
+            "Error estándar": modelo.bse.to_numpy(),
+            "t": modelo.tvalues.to_numpy(),
+            "p-valor": modelo.pvalues.to_numpy(),
+        }
+    )
+
+    # Falta de ajuste: compara el error del modelo con el error puro de los centros
+    central = (df[x1].abs() < 1e-9) & (df[x2].abs() < 1e-9)
+    yc = df.loc[central, y].to_numpy(dtype=float)
+    falta = None
+    if len(yc) >= 2:
+        # SC error puro = variación de los centros respecto a su media (gl = nC - 1)
+        sc_pe = float(((yc - yc.mean()) ** 2).sum())
+        gl_pe = len(yc) - 1
+        # SC falta de ajuste = SC residual del modelo - SC error puro
+        sc_fa = float(modelo.ssr) - sc_pe
+        gl_fa = int(modelo.df_resid) - gl_pe
+        if gl_fa > 0 and sc_pe > 0:
+            f = (sc_fa / gl_fa) / (sc_pe / gl_pe)
+            p = float(stats.f.sf(f, gl_fa, gl_pe))
+            falta = {
+                "sc_fa": sc_fa, "gl_fa": gl_fa, "sc_pe": sc_pe, "gl_pe": gl_pe,
+                "F": float(f), "p_valor": p, "significativa": p < 0.05,
+            }
+    return modelo, tabla, float(modelo.rsquared), float(modelo.rsquared_adj), falta
