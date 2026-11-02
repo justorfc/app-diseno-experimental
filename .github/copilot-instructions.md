@@ -27,3 +27,8 @@
 ## Verificación
 
 - Antes de terminar una tarea que modifique código, ejecuta el código y corrige los errores que aparezcan.
+
+## Reglas para diseños con bloques
+
+- En DBCA, DCL y DPD la prueba de Tukey usa el CM Error y los gl Error DEL MODELO ajustado, nunca `pairwise_tukeyhsd` (que ignora bloques).
+- En el DPD hay dos errores: Error (a) para la parcela principal y Error (b) para la subparcela y la interacción.
