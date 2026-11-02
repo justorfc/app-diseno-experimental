@@ -10,6 +10,8 @@ import streamlit as st
 
 from utils.anova_utils import cargar_datos
 from utils.rsm_coding import decodificar
+from utils.rsm_mesh import malla, predecir_malla
+from utils.rsm_plots import curvas_nivel, superficie_3d
 from utils.rsm_models import (
     ajustar_primer_orden,
     ajustar_segundo_orden,
@@ -89,8 +91,8 @@ tabs = st.tabs(
         "7. Exportar",
     ]
 )
-tab1, tab2, tab3, tab4 = tabs[:4]
-for tab in tabs[4:]:
+tab1, tab2, tab3, tab4, tab5, tab6 = tabs[:6]
+for tab in tabs[6:]:
     with tab:
         st.info("En construcción")
 
@@ -345,3 +347,35 @@ with tab4:
     else:
         texto += " Está dentro de la región probada; se recomienda un ensayo de confirmación en el secador."
     st.write(texto)
+
+# Malla y predicciones compartidas por las pestañas 5 y 6
+X1, X2 = malla(-1.5, 1.5, 60)
+Z = predecir_malla(mod2, X1, X2, c_x1, c_x2)
+etiquetas = {
+    "nombre1": nom1, "unidad1": uni1, "centro1": cen1c, "semi1": sem1c,
+    "nombre2": nom2, "unidad2": uni2, "centro2": cen2c, "semi2": sem2c,
+    "respuesta": c_y,
+}
+
+with tab5:
+    st.plotly_chart(superficie_3d(X1, X2, Z, xs, ys, etiquetas), width="stretch")
+    st.markdown(
+        """
+**Cómo leerla:**
+- **Cima o fondo:** el punto rojo marca el punto estacionario; si es un máximo, está en lo más alto de la superficie.
+- **Pendiente:** donde la superficie es más inclinada, un pequeño cambio en las variables cambia mucho la respuesta; cerca de la cima es casi plana.
+- **Forma:** una cúpula indica máximo, un valle mínimo y una "silla de montar" que no hay óptimo único.
+"""
+    )
+
+with tab6:
+    puntos = d3[[c_x1, c_x2]].to_numpy(dtype=float)
+    st.plotly_chart(curvas_nivel(X1, X2, Z, xs, puntos, etiquetas), width="stretch")
+    st.markdown(
+        """
+**Cómo leerlas:**
+- **Cima:** las curvas se cierran alrededor del punto estacionario (✕ rojo); el valor aumenta hacia el centro si es un máximo.
+- **Pendiente:** curvas muy juntas significan cambio rápido de la respuesta; curvas separadas, zona plana.
+- **Forma:** óvalos casi circulares indican que ambas variables pesan parecido; óvalos alargados o inclinados indican que una pesa más o que hay interacción.
+"""
+    )
