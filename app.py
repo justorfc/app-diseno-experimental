@@ -46,19 +46,19 @@ modulos = pd.DataFrame(
             "Módulo": "DBCA – Diseño de Bloques Completos al Azar",
             "Cuándo se usa": "Existe una fuente de variación conocida que se puede agrupar en bloques.",
             "Ejemplo agrícola": "Evaluar variedades de maíz en lotes con distinta pendiente.",
-            "Estado": "En construcción",
+            "Estado": "Disponible",
         },
         {
             "Módulo": "DCL – Diseño en Cuadrado Latino",
             "Cuándo se usa": "Hay dos fuentes de variación cruzadas (filas y columnas).",
             "Ejemplo agrícola": "Probar dosis de abono en un lote con gradientes de fertilidad y de riego.",
-            "Estado": "En construcción",
+            "Estado": "Disponible",
         },
         {
             "Módulo": "DPD – Diseño de Parcelas Divididas",
             "Cuándo se usa": "Un factor requiere parcelas grandes y otro puede aplicarse en subparcelas.",
             "Ejemplo agrícola": "Sistemas de riego (parcela principal) y variedades de arroz (subparcela).",
-            "Estado": "En construcción",
+            "Estado": "Disponible",
         },
         {
             "Módulo": "Factoriales",
@@ -75,6 +75,34 @@ modulos = pd.DataFrame(
     ]
 )
 st.dataframe(modulos, hide_index=True, width="stretch")
+
+st.header("¿Qué diseño uso?")
+
+guia = pd.DataFrame(
+    [
+        {
+            "Situación del experimento": "Unidades homogéneas; no hay gradientes ni fuentes de variación conocidas.",
+            "Diseño recomendado": "DCA",
+            "Ejemplo agrícola": "Humedad final de yuca en 4 secadores solares, todos en el mismo ambiente.",
+        },
+        {
+            "Situación del experimento": "Una fuente de variación conocida (pendiente, día, lote) que se puede agrupar en bloques.",
+            "Diseño recomendado": "DBCA",
+            "Ejemplo agrícola": "4 secadores comparados en 4 días distintos; cada día es un bloque.",
+        },
+        {
+            "Situación del experimento": "Dos fuentes de variación cruzadas (filas y columnas) y tantos niveles como tratamientos.",
+            "Diseño recomendado": "DCL",
+            "Ejemplo agrícola": "4 pretratamientos de yuca, con el día como fila y la posición de la bandeja como columna.",
+        },
+        {
+            "Situación del experimento": "Dos factores y uno de ellos exige unidades grandes (difícil de cambiar); el otro va en subunidades.",
+            "Diseño recomendado": "DPD",
+            "Ejemplo agrícola": "Secador (parcela principal) y espesor de rodaja (subparcela), repetidos en 3 días.",
+        },
+    ]
+)
+st.dataframe(guia, hide_index=True, width="stretch")
 
 st.header("¿Cómo usar la app?")
 st.markdown(
