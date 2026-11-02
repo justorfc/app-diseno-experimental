@@ -190,3 +190,142 @@ def interpretar_eficiencia(er: float, b: int) -> str:
         f"ER = {er:.2f}: el bloqueo no mejoró la precisión; un DCA con {b} réplicas "
         "habría sido igual o más preciso."
     )
+
+
+# ---------------------------------------------------------------------------
+# Cuadro Latino (DCL):  Y_ijk = mu + fila_i + columna_j + tau_k + e_ijk
+# ---------------------------------------------------------------------------
+
+
+def validar_cuadro_latino(
+    df: pd.DataFrame, col_fila: str, col_col: str, col_trat: str, col_resp: str
+) -> list[str]:
+    """Revisa que los datos formen un Cuadro Latino válido.
+
+    Reglas: filas, columnas y tratamientos con el mismo número t de niveles;
+    t² observaciones; cada tratamiento una vez por fila y una vez por columna.
+
+    Args:
+        df: Datos del experimento.
+        col_fila: Nombre de la columna de filas.
+        col_col: Nombre de la columna de columnas.
+        col_trat: Nombre de la columna de tratamientos.
+        col_resp: Nombre de la columna de la variable respuesta.
+
+    Returns:
+        Lista de mensajes de error en español (vacía si el cuadro es válido).
+    """
+    nombres = [col_fila, col_col, col_trat, col_resp]
+    if len(set(nombres)) < 4:
+        return ["Fila, columna, tratamiento y respuesta deben ser cuatro columnas distintas."]
+
+    errores: list[str] = []
+    if not pd.api.types.is_numeric_dtype(df[col_resp]):
+        errores.append(f"La respuesta «{col_resp}» debe ser numérica.")
+    if df[nombres].isna().any().any():
+        errores.append("Hay valores faltantes en las columnas elegidas.")
+    if errores:
+        return errores
+
+    n_fil, n_col, n_trat = (df[c].nunique() for c in (col_fila, col_col, col_trat))
+    if not n_fil == n_col == n_trat:
+        return [
+            "Regla 1: filas, columnas y tratamientos deben tener el mismo número de "
+            f"niveles t. Se encontró {n_fil} filas, {n_col} columnas y {n_trat} tratamientos."
+        ]
+    t = n_fil
+    if t < 3:
+        return ["El Cuadro Latino necesita t ≥ 3 (con t = 2 el error tendría 0 gl)."]
+    if len(df) != t**2:
+        errores.append(
+            f"Regla 2: se esperaban t² = {t**2} observaciones y hay {len(df)}."
+        )
+
+    # Cada celda (fila, columna) debe tener exactamente una observación
+    conteo_celdas = df.groupby([col_fila, col_col]).size()
+    if len(conteo_celdas) != t**2 or (conteo_celdas != 1).any():
+        errores.append(
+            "Regla 2: cada combinación (fila, columna) debe tener exactamente una observación."
+        )
+
+    # Cada tratamiento exactamente una vez en cada fila y en cada columna
+    for col_pos, etiqueta in ((col_fila, "fila"), (col_col, "columna")):
+        tabla = pd.crosstab(df[col_pos], df[col_trat])
+        for nivel, fila in tabla.iterrows():
+            rotos = fila[fila != 1]
+            if not rotos.empty:
+                detalle = ", ".join(f"{k} aparece {v} veces" for k, v in rotos.items())
+                errores.append(
+                    f"Regla 3: en la {etiqueta} «{nivel}» cada tratamiento debe aparecer "
+                    f"exactamente una vez ({detalle})."
+                )
+    return errores
+
+
+def ajustar_cuadro_latino(
+    df: pd.DataFrame, col_fila: str, col_col: str, col_trat: str, col_resp: str
+) -> RegressionResultsWrapper:
+    """Ajusta el modelo del Cuadro Latino: respuesta ~ fila + columna + tratamiento.
+
+    Args:
+        df: Datos del experimento.
+        col_fila: Nombre de la columna de filas.
+        col_col: Nombre de la columna de columnas.
+        col_trat: Nombre de la columna de tratamientos.
+        col_resp: Nombre de la columna de la variable respuesta.
+
+    Returns:
+        Modelo ajustado de statsmodels.
+    """
+    formula = (
+        f"{_q(col_resp)} ~ C({_q(col_fila)}) + C({_q(col_col)}) + C({_q(col_trat)})"
+    )
+    return ols(formula, data=df).fit()
+
+
+def tabla_anova_dcl(modelo: RegressionResultsWrapper, t: int) -> pd.DataFrame:
+    """Construye la tabla ANOVA del Cuadro Latino.
+
+    Fórmulas:
+        CM = SC / gl;  F = CM_fuente / CM_error;  gl Error = (t - 1)(t - 2)
+
+    Args:
+        modelo: Modelo devuelto por ajustar_cuadro_latino.
+        t: Número de tratamientos (= filas = columnas).
+
+    Returns:
+        DataFrame con columnas Fuente, gl, SC, CM, F y p-valor.
+
+    Raises:
+        ValueError: Si los gl del error no son (t - 1)(t - 2).
+    """
+    anova = anova_lm(modelo, typ=2)
+    # El orden de la fórmula es fila, columna, tratamiento, residuo
+    tabla = pd.DataFrame(
+        {
+            "Fuente": ["Filas", "Columnas", "Tratamientos", "Error"],
+            "gl": anova["df"].to_numpy(),
+            "SC": anova["sum_sq"].to_numpy(),
+            "F": list(anova["F"].iloc[:3]) + [np.nan],
+            "p-valor": list(anova["PR(>F)"].iloc[:3]) + [np.nan],
+        }
+    )
+    # Comprobación: gl del error = (t-1)(t-2)
+    gl_error = int(tabla.loc[tabla["Fuente"] == "Error", "gl"].iloc[0])
+    if gl_error != (t - 1) * (t - 2):
+        raise ValueError(
+            f"gl Error = {gl_error}, pero (t-1)(t-2) = {(t - 1) * (t - 2)}."
+        )
+    tabla["CM"] = tabla["SC"] / tabla["gl"]
+    total = pd.DataFrame(
+        {
+            "Fuente": ["Total"],
+            "gl": [tabla["gl"].sum()],
+            "SC": [tabla["SC"].sum()],
+            "CM": [np.nan],
+            "F": [np.nan],
+            "p-valor": [np.nan],
+        }
+    )
+    tabla = pd.concat([tabla, total], ignore_index=True)
+    return tabla[["Fuente", "gl", "SC", "CM", "F", "p-valor"]]
