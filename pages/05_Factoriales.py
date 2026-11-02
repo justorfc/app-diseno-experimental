@@ -124,6 +124,17 @@ tab_datos, tab_anova, tab_graf, tab_comp, tab_sup = st.tabs(
 )
 
 with tab_datos:
+    # Excel con la tabla ANOVA y las medias de celda, cada una en su hoja
+    salida = io.BytesIO()
+    with pd.ExcelWriter(salida, engine="openpyxl") as escritor:
+        anova.to_excel(escritor, sheet_name="ANOVA", index=False)
+        medias_celdas(df, factores, col_resp).to_excel(escritor, sheet_name="Medias de celda", index=False)
+    st.download_button(
+        "Descargar ANOVA y medias (Excel)",
+        salida.getvalue(),
+        "factorial_resultados.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
     st.subheader("Datos cargados")
     st.dataframe(df, hide_index=True, width="stretch")
     st.subheader("Medias de celda")

@@ -10,6 +10,12 @@ import streamlit as st
 
 from utils.anova_utils import cargar_datos
 from utils.rsm_coding import decodificar
+from utils.rsm_export import (
+    a_bytes,
+    figura_contornos_mpl,
+    figura_superficie_mpl,
+    guardar_en_carpeta,
+)
 from utils.rsm_mesh import malla, predecir_malla
 from utils.rsm_plots import curvas_nivel, superficie_3d
 from utils.rsm_models import (
@@ -91,10 +97,7 @@ tabs = st.tabs(
         "7. Exportar",
     ]
 )
-tab1, tab2, tab3, tab4, tab5, tab6 = tabs[:6]
-for tab in tabs[6:]:
-    with tab:
-        st.info("En construcción")
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = tabs
 
 with tab1:
     archivo = st.file_uploader("Cargue sus datos (CSV o Excel)", type=["csv", "xlsx"])
@@ -169,6 +172,7 @@ with tab1:
             )
 
 with tab2:
+    tray = None
     pasos = st.number_input("Número de pasos", min_value=1, max_value=20, value=5)
     if abs(b1) == 0 and abs(b2) == 0:
         st.error("Los coeficientes b1 y b2 son cero: no hay dirección de ascenso.")
@@ -378,4 +382,37 @@ with tab6:
 - **Pendiente:** curvas muy juntas significan cambio rápido de la respuesta; curvas separadas, zona plana.
 - **Forma:** óvalos casi circulares indican que ambas variables pesan parecido; óvalos alargados o inclinados indican que una pesa más o que hay interacción.
 """
+    )
+
+with tab7:
+    fig_sup = figura_superficie_mpl(X1, X2, Z, xs, ys, etiquetas)
+    fig_con = figura_contornos_mpl(X1, X2, Z, xs, puntos, etiquetas)
+    st.subheader("Vista previa")
+    v1, v2 = st.columns(2)
+    v1.pyplot(fig_sup)
+    v2.pyplot(fig_con)
+
+    st.subheader("Descargas")
+    d1, d2, d3_, d4 = st.columns(4)
+    d1.download_button("Superficie PNG", a_bytes(fig_sup, "png"), "superficie.png", "image/png")
+    d2.download_button("Superficie PDF", a_bytes(fig_sup, "pdf"), "superficie.pdf", "application/pdf")
+    d3_.download_button("Contornos PNG", a_bytes(fig_con, "png"), "contornos.png", "image/png")
+    d4.download_button("Contornos PDF", a_bytes(fig_con, "pdf"), "contornos.pdf", "application/pdf")
+
+    if st.button("Guardar en la carpeta figuras/"):
+        rutas = guardar_en_carpeta(fig_sup, "superficie") + guardar_en_carpeta(fig_con, "contornos")
+        st.success("Archivos guardados: " + ", ".join(f"`{r}`" for r in rutas))
+
+    st.subheader("Tablas en Excel")
+    salida = io.BytesIO()
+    with pd.ExcelWriter(salida, engine="openpyxl") as escritor:
+        coefs.to_excel(escritor, sheet_name="Primer orden", index=False)
+        coef2.to_excel(escritor, sheet_name="Segundo orden", index=False)
+        if tray is not None:
+            tray.to_excel(escritor, sheet_name="Trayectoria", index=False)
+    st.download_button(
+        "Descargar tablas (Excel)",
+        salida.getvalue(),
+        "rsm_tablas.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )

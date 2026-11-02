@@ -221,3 +221,6 @@ __marimo__/
 
 # Archivos exportados por la aplicación
 exports/
+
+# Figuras exportadas desde la app
+figuras/
